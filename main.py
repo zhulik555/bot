@@ -1,5 +1,5 @@
 import socketio
-import requests
+import cloudscraper
 import os
 import time
 import threading
@@ -16,10 +16,13 @@ DISCORD_WEBHOOK_URL = os.environ.get(
     "https://discord.com/api/webhooks/1554786560568852500/xkrAyOj-AmwID_h4XFH5gmzY5LYazXlavCiRroW_rEVBxmAyCKrvmdpZCWyqgHW3F_5P"
 )
 
+# Initialize cloudscraper to bypass Cloudflare protection
+scraper = cloudscraper.create_scraper()
+
 sio = socketio.Client(
+    http_session=scraper,
     reconnection=True, 
-    reconnection_delay=3, 
-    reconnection_delay_max=10, 
+    reconnection_delay=5,
     logger=False, 
     engineio_logger=False
 )
@@ -39,7 +42,7 @@ def send_rain_alert(event_name, data):
                    f"👉 Join here: https://skinrave.com"
     }
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+        scraper.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
         print(f"[OK] Alert sent to Discord for event: {event_name}")
     except Exception as e:
         print(f"[ERROR] Exception sending alert: {e}")
@@ -73,21 +76,13 @@ def on_rain_open(data):
     send_rain_alert('DOMAIN_RAIN_OPEN_EVENT', data)
 
 def run_socketio():
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Origin': 'https://skinrave.com',
-        'Accept-Language': 'en-US,en;q=0.9'
-    }
-    
     while True:
         try:
             if not sio.connected:
-                print("[INFO] Connecting to Skinrave WebSocket (WebSocket mode only)...")
+                print("[INFO] Connecting to Skinrave via Cloudscraper session...")
                 sio.connect(
                     'https://skinrave.com',
                     namespaces=['/ws'],
-                    headers=headers,
-                    transports=['websocket'],
                     socketio_path='socket.io'
                 )
             
@@ -96,8 +91,8 @@ def run_socketio():
                 subscribe_rain()
                 
         except Exception as e:
-            print(f"[ERROR] Connection failed: {e}. Retrying in 5 seconds...")
-            time.sleep(5)
+            print(f"[ERROR] Connection failed: {e}. Retrying in 10 seconds...")
+            time.sleep(10)
 
 threading.Thread(target=run_socketio, daemon=True).start()
 
