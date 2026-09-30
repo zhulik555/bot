@@ -1,11 +1,10 @@
 import os
-import time
 import json
+import asyncio
 import threading
 import requests
-import cloudscraper
-import socketio
 from flask import Flask
+from playwright.async_api import async_playwright
 
 app = Flask(__name__)
 
@@ -18,7 +17,7 @@ bot_started = False
 
 @app.route('/')
 def home():
-    return "Skinrave Rain Bot is active!"
+    return "Skinrave Rain Bot is active via Playwright!"
 
 def send_discord_alert(title, data_dict):
     payload = {
@@ -30,72 +29,62 @@ def send_discord_alert(title, data_dict):
     except Exception as e:
         print(f"[ERROR] Discord post failed: {e}")
 
-# Izveidojam drošu cloudscraper sesiju
-scraper = cloudscraper.create_scraper(
-    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
-)
-
-sio = socketio.Client(
-    http_session=scraper,
-    reconnection=True,
-    reconnection_delay=3,
-    logger=False,
-    engineio_logger=False
-)
-
-def subscribe_all():
-    print("[INFO] Subscribing to Rain and Global channels...")
-    try:
-        sio.emit("WS_SUBSCRIBE", {"room": "RAIN", "modifiers": [], "currencyType": "TOKEN"}, namespace='/ws')
-        sio.emit("WS_SUBSCRIBE", {"room": "GLOBAL", "modifiers": [], "currencyType": "TOKEN"}, namespace='/ws')
-    except Exception as e:
-        print(f"[ERROR] WS_SUBSCRIBE error: {e}")
-
-@sio.event
-def connect():
-    print("[INFO] Connected to Root namespace!")
-    send_discord_alert("BOT CONNECTED TO SKINRAVE", {"status": "Success", "namespace": "root"})
-
-@sio.event(namespace='/ws')
-def connect():
-    print("[INFO] Connected to /ws namespace!")
-    send_discord_alert("BOT CONNECTED TO SKINRAVE /ws", {"status": "Success", "namespace": "/ws"})
-    subscribe_all()
-
-@sio.on('*', namespace='/ws')
-def catch_all_ws(event, data=None):
-    print(f"[EVENT /ws] {event}: {data}")
-    event_str = str(event).upper()
-    data_str = str(data).upper()
+async def run_browser_bot():
+    print("[INFO] Starting Playwright Headless Browser...")
+    send_discord_alert("BOT INITIALIZING", {"status": "Launching Playwright Browser..."})
     
-    if "RAIN" in event_str or "RAIN" in data_str or "OPEN" in event_str:
-        print(f"[MATCH FOUND] Triggering alert for: {event}")
-        send_discord_alert(f"RAIN DETECTED: {event}", data if isinstance(data, dict) else {"raw": str(data)})
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        )
+        page = await context.new_page()
 
-def run_socketio():
-    while True:
-        try:
-            if not sio.connected:
-                print("[INFO] Connecting Engine.IO handshake...")
-                sio.connect(
-                    'https://skinrave.com',
-                    namespaces=['/ws'],
-                    transports=['polling', 'websocket'],
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                        "Origin": "https://skinrave.com"
-                    }
-                )
-            time.sleep(5)
-        except Exception as e:
-            print(f"[ERROR] SocketIO connection failed: {e}. Retrying in 5s...")
-            time.sleep(5)
+        def handle_ws_msg(ws):
+            print(f"[INFO] WebSocket opened: {ws.url}")
+            send_discord_alert("BOT CONNECTED TO SKINRAVE", {"url": ws.url})
+
+            def on_frame_received(payload):
+                try:
+                    payload_str = payload if isinstance(payload, str) else payload.decode('utf-8', errors='ignore')
+                    
+                    if "42/ws," in payload_str or "RAIN" in payload_str.upper():
+                        print(f"[WS FRAME] {payload_str}")
+                        if "RAIN" in payload_str.upper() or "OPEN" in payload_str.upper():
+                            send_discord_alert("RAIN DETECTED VIA BROWSER", {"payload": payload_str})
+                except Exception as err:
+                    print(f"[FRAME PARSE ERR] {err}")
+
+            ws.on("framereceived", on_frame_received)
+
+        page.on("websocket", handle_ws_msg)
+
+        while True:
+            try:
+                print("[INFO] Navigating to Skinrave.com...")
+                await page.goto("https://skinrave.com", wait_until="networkidle", timeout=60000)
+                print("[INFO] Page loaded successfully!")
+                
+                while True:
+                    await asyncio.sleep(30)
+                    await page.evaluate("() => window.scrollTo(0, 100)")
+            except Exception as e:
+                print(f"[ERROR] Browser error: {e}. Reloading page in 10s...")
+                await asyncio.sleep(10)
+
+def start_async_loop():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(run_browser_bot())
 
 def start_bot_once():
     global bot_started
     if not bot_started:
         bot_started = True
-        threading.Thread(target=run_socketio, daemon=True).start()
+        threading.Thread(target=start_async_loop, daemon=True).start()
 
 start_bot_once()
 
