@@ -1,5 +1,6 @@
 python-socketio[client]
-requests
 websocket-client
+requests
+cloudscraper
 flask
 gunicorn
