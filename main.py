@@ -20,84 +20,78 @@ bot_started = False
 def home():
     return "Skinrave Rain Bot is active!"
 
-def send_rain_alert(event_name, data):
-    pool_id = 'N/A'
-    end_time = 'N/A'
-    
-    if isinstance(data, dict):
-        pool_id = data.get('rainPoolId', data.get('id', data.get('poolId', 'N/A')))
-        end_time = data.get('rainPoolEndTime', data.get('endTime', 'N/A'))
-
+def send_discord_alert(title, data_str):
     payload = {
-        "content": f"🚨 @everyone **SKINRAVE RAIN IS NOW OPEN!** 🚨\n"
-                   f"**Event:** `{event_name}`\n"
-                   f"**Pool ID:** `{pool_id}`\n"
-                   f"👉 Join here: https://skinrave.com"
+        "content": f"🚨 **{title}** 🚨\n```json\n{data_str[:1500]}\n```\n👉 https://skinrave.com"
     }
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
-        print(f"[OK] Alert sent to Discord for event: {event_name}")
+        print(f"[OK] Sent alert to Discord: {title}")
     except Exception as e:
-        print(f"[ERROR] Exception sending alert: {e}")
+        print(f"[ERROR] Discord post failed: {e}")
 
 async def listen_ws():
     uri = "wss://skinrave.com/socket.io/?EIO=4&transport=websocket"
     
-    # Header saraksts tuplēs, kas strādā nevainojami visās websockets versijās
     custom_headers = [
         ("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
-        ("Origin", "https://skinrave.com"),
-        ("Accept-Language", "en-US,en;q=0.9")
+        ("Origin", "https://skinrave.com")
     ]
 
     while True:
         try:
             print("[INFO] Connecting to Skinrave Direct WSS...")
-            
-            # Izmantojam extra_headers kā sarakstu, lai apietu Cloudflare 403
             async with websockets.connect(uri, extra_headers=custom_headers) as ws:
-                print("[INFO] Direct WSS connected successfully!")
+                print("[INFO] Connected successfully!")
                 
                 # Receive Engine.IO handshake
-                response = await ws.recv()
-                print(f"[WS HANDSHAKE] {response}")
+                handshake = await ws.recv()
+                print(f"[WS HANDSHAKE] {handshake}")
 
                 # Connect to /ws namespace
                 await ws.send('40/ws,')
+                
+                # Abonējam vairākas iespējamās telpas
+                await ws.send('42/ws,["WS_SUBSCRIBE",{"room":"RAIN","modifiers":[],"currencyType":"TOKEN"}]')
+                await ws.send('42/ws,["WS_SUBSCRIBE",{"room":"GLOBAL","modifiers":[],"currencyType":"TOKEN"}]')
+                print("[INFO] Subscribed to RAIN and GLOBAL rooms!")
 
-                # Subscribe to RAIN room
-                subscribe_msg = '42/ws,["WS_SUBSCRIBE",{"room":"RAIN","modifiers":[],"currencyType":"TOKEN"}]'
-                await ws.send(subscribe_msg)
-                print("[INFO] Sent subscription request to RAIN room")
+                # Nosūtām testa paziņojumu uz Discord, lai pārbaudītu, vai viss strādā
+                send_discord_alert("BOT CONNECTED TO SKINRAVE", "Bots ir veiksmīgi pieslēdzies un klausās notikumus.")
 
                 while True:
                     msg = await ws.recv()
                     
-                    # Heartbeat Ping/Pong
+                    # Heartbeat Ping -> Pong
                     if msg == '2':
                         await ws.send('3')
                         continue
 
-                    # Process incoming messages
-                    if 'ws' in msg and '[' in msg:
+                    # Ierakstām katru saņemto ziņu konsolē
+                    if 'ws' in msg:
+                        print(f"[RAW MSG] {msg}")
+
+                    # Izvelkam un apstrādājam notikumus
+                    if msg.startswith('42/ws,'):
                         try:
-                            json_start = msg.find('[')
-                            payload_str = msg[json_start:]
+                            payload_str = msg[6:]
                             data_json = json.loads(payload_str)
-                            
                             event_name = data_json[0]
                             event_data = data_json[1] if len(data_json) > 1 else {}
                             
-                            print(f"[EVENT LOG] Received: {event_name}")
-                            
-                            if "RAIN" in str(event_name).upper():
-                                print(f"[MATCH FOUND] Triggering alert for: {event_name}")
-                                send_rain_alert(event_name, event_data)
+                            # Ja notikums ir saistīts ar Rain, sūtām trauksmi
+                            event_upper = str(event_name).upper()
+                            data_upper = str(event_data).upper()
+
+                            if "RAIN" in event_upper or "RAIN" in data_upper or "OPEN" in event_upper:
+                                print(f"[MATCH FOUND!] {event_name}")
+                                send_discord_alert(f"RAIN DETECTED: {event_name}", json.dumps(event_data, indent=2))
+
                         except Exception as parse_err:
-                            pass
+                            print(f"[PARSE ERR] {parse_err}")
 
         except Exception as e:
-            print(f"[ERROR] Connection lost: {e}. Reconnecting in 5 seconds...")
+            print(f"[ERROR] Connection dropped: {e}. Reconnecting in 5s...")
             await asyncio.sleep(5)
 
 def start_async_loop():
