@@ -53,43 +53,46 @@ async def listen_ws():
             async with websockets.connect(uri, extra_headers=headers) as ws:
                 print("[INFO] Direct WSS connected successfully!")
                 
-                # Receive Engine.IO handshake (40 response)
+                # Receive Engine.IO handshake
                 response = await ws.recv()
                 print(f"[WS HANDSHAKE] {response}")
 
                 # Connect to /ws namespace
                 await ws.send('40/ws,')
 
-                # Maintain connection and handle events
+                # Subscribe to RAIN room
+                subscribe_msg = '42/ws,["WS_SUBSCRIBE",{"room":"RAIN","modifiers":[],"currencyType":"TOKEN"}]'
+                await ws.send(subscribe_msg)
+                print("[INFO] Sent subscription request to RAIN room")
+
                 while True:
                     msg = await ws.recv()
                     
-                    # Ping / Pong Engine.IO heartbeat
+                    # Heartbeat Ping/Pong
                     if msg == '2':
-                        await ws.send('3') # Reply with Pong
+                        await ws.send('3')
                         continue
 
-                    # Handle Socket.IO messages
-                    if msg.startswith('42/ws,'):
+                    # Process incoming messages
+                    if 'ws' in msg and '[' in msg:
                         try:
-                            payload_str = msg[6:]
+                            json_start = msg.find('[')
+                            payload_str = msg[json_start:]
                             data_json = json.loads(payload_str)
+                            
                             event_name = data_json[0]
                             event_data = data_json[1] if len(data_json) > 1 else {}
                             
-                            print(f"[EVENT LOG] Received: {event_name} -> {event_data}")
+                            print(f"[EVENT LOG] Received: {event_name}")
                             
                             if "RAIN" in str(event_name).upper():
                                 print(f"[MATCH FOUND] Triggering alert for: {event_name}")
                                 send_rain_alert(event_name, event_data)
                         except Exception as parse_err:
-                            print(f"[PARSE ERROR] {parse_err} | Msg: {msg}")
-
-                    # Subscribe regularly if needed
-                    await asyncio.sleep(0.1)
+                            pass
 
         except Exception as e:
-            print(f"[ERROR] Connection lost: {e}. Reconnecting in 5 seconds...")
+            print(f"[ERROR] WSS Connection lost: {e}. Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
 
 def start_async_loop():
@@ -97,7 +100,7 @@ def start_async_loop():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(listen_ws())
 
-# Ensure background worker starts only once
+# Ensure the thread runs only once
 def start_bot_once():
     global bot_started
     if not bot_started:
