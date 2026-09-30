@@ -16,8 +16,13 @@ DISCORD_WEBHOOK_URL = os.environ.get(
     "https://discord.com/api/webhooks/1554786560568852500/xkrAyOj-AmwID_h4XFH5gmzY5LYazXlavCiRroW_rEVBxmAyCKrvmdpZCWyqgHW3F_5P"
 )
 
-# Enable automatic reconnection with lower delay
-sio = socketio.Client(reconnection=True, reconnection_delay=2, logger=False, engineio_logger=False)
+sio = socketio.Client(
+    reconnection=True, 
+    reconnection_delay=3, 
+    reconnection_delay_max=10, 
+    logger=False, 
+    engineio_logger=False
+)
 
 def send_rain_alert(event_name, data):
     pool_id = 'N/A'
@@ -31,15 +36,11 @@ def send_rain_alert(event_name, data):
         "content": f"🚨 @everyone **SKINRAVE RAIN IS NOW OPEN!** 🚨\n"
                    f"**Event:** `{event_name}`\n"
                    f"**Pool ID:** `{pool_id}`\n"
-                   f"**Ends At:** `{end_time}`\n"
                    f"👉 Join here: https://skinrave.com"
     }
     try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        if response.status_code in [200, 204]:
-            print(f"[OK] Alert successfully sent to Discord for event: {event_name}")
-        else:
-            print(f"[ERROR] Failed to send alert: {response.status_code}")
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+        print(f"[OK] Alert sent to Discord for event: {event_name}")
     except Exception as e:
         print(f"[ERROR] Exception sending alert: {e}")
 
@@ -57,19 +58,15 @@ def subscribe_rain():
 
 @sio.on('disconnect', namespace='/ws')
 def on_disconnect():
-    print("[WARNING] Disconnected from /ws namespace. Reconnecting will occur automatically...")
+    print("[WARNING] Disconnected from /ws namespace. Reconnecting...")
 
-# Catch-all event listener for any WebSocket message
 @sio.on('*', namespace='/ws')
 def catch_all(event, data):
     print(f"[EVENT LOG] Received event '{event}': {data}")
-    # Trigger alert if the event is related to RAIN
-    event_str = str(event).upper()
-    if "RAIN" in event_str or "OPEN" in event_str:
+    if "RAIN" in str(event).upper():
         print(f"[MATCH FOUND] Triggering alert for event: {event}")
         send_rain_alert(event, data)
 
-# Dedicated handler for standard rain open event
 @sio.on('DOMAIN_RAIN_OPEN_EVENT', namespace='/ws')
 def on_rain_open(data):
     print(f"[EVENT] Explicit DOMAIN_RAIN_OPEN_EVENT received: {data}")
@@ -77,33 +74,31 @@ def on_rain_open(data):
 
 def run_socketio():
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Origin': 'https://skinrave.com',
-        'Referer': 'https://skinrave.com/'
+        'Accept-Language': 'en-US,en;q=0.9'
     }
     
     while True:
         try:
             if not sio.connected:
-                print("[INFO] Connecting to Skinrave WebSocket...")
+                print("[INFO] Connecting to Skinrave WebSocket (WebSocket mode only)...")
                 sio.connect(
                     'https://skinrave.com',
                     namespaces=['/ws'],
                     headers=headers,
-                    transports=['websocket', 'polling'],
+                    transports=['websocket'],
                     socketio_path='socket.io'
                 )
             
-            # Periodically re-subscribe every 2 minutes to keep connection/room active
-            time.sleep(120)
+            time.sleep(60)
             if sio.connected:
                 subscribe_rain()
                 
         except Exception as e:
-            print(f"[ERROR] WebSocket connection error: {e}. Retrying in 5 seconds...")
+            print(f"[ERROR] Connection failed: {e}. Retrying in 5 seconds...")
             time.sleep(5)
 
-# Start WebSocket thread
 threading.Thread(target=run_socketio, daemon=True).start()
 
 if __name__ == '__main__':
