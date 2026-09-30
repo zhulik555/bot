@@ -2,8 +2,16 @@ import socketio
 import requests
 import os
 import time
+import threading
+from flask import Flask
 
-# Discord Webhook URL
+# Flask server configuration to keep Render Free Tier happy
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Skinrave Rain Bot is active!"
+
 DISCORD_WEBHOOK_URL = os.environ.get(
     "DISCORD_WEBHOOK_URL", 
     "https://discord.com/api/webhooks/1554786560568852500/xkrAyOj-AmwID_h4XFH5gmzY5LYazXlavCiRroW_rEVBxmAyCKrvmdpZCWyqgHW3F_5P"
@@ -30,23 +38,16 @@ def send_rain_alert(pool_id, end_time):
 @sio.on('connect', namespace='/ws')
 def on_connect():
     print("[INFO] Connected to /ws namespace. Subscribing to RAIN room...")
-    # Send subscription payload for RAIN room
     sio.emit("WS_SUBSCRIBE", {"room": "RAIN", "modifiers": [], "currencyType": "TOKEN"}, namespace='/ws')
 
-@sio.on('disconnect', namespace='/ws')
-def on_disconnect():
-    print("[WARNING] Disconnected from WebSocket. Reconnecting...")
-
-# Listen specifically for the Rain open event
 @sio.on('DOMAIN_RAIN_OPEN_EVENT', namespace='/ws')
 def on_rain_open(data):
     print(f"\n[EVENT] DOMAIN_RAIN_OPEN_EVENT received: {data}")
     pool_id = data.get('rainPoolId', 'N/A')
     end_time = data.get('rainPoolEndTime', 'N/A')
-    
     send_rain_alert(pool_id, end_time)
 
-if __name__ == '__main__':
+def run_socketio():
     while True:
         try:
             print("[INFO] Connecting to Skinrave WebSocket...")
@@ -60,3 +61,10 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"[ERROR] Connection failed: {e}. Retrying in 10 seconds...")
             time.sleep(10)
+
+# Start WebSocket listener in a background thread
+threading.Thread(target=run_socketio, daemon=True).start()
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
