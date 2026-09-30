@@ -1,5 +1,5 @@
 Flask
 gunicorn
 requests
-websockets
-aiohttp
+cloudscraper
+python-socketio[client]
