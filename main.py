@@ -43,15 +43,19 @@ def send_rain_alert(event_name, data):
 async def listen_ws():
     uri = "wss://skinrave.com/socket.io/?EIO=4&transport=websocket"
     
+    # Header saraksts tuplēs, kas strādā nevainojami visās websockets versijās
+    custom_headers = [
+        ("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
+        ("Origin", "https://skinrave.com"),
+        ("Accept-Language", "en-US,en;q=0.9")
+    ]
+
     while True:
         try:
             print("[INFO] Connecting to Skinrave Direct WSS...")
-            # Pievienojamies bez papildu header parametriem, lai izvairītos no versiju konflikta
-            async with websockets.connect(
-                uri, 
-                origin="https://skinrave.com",
-                user_agent_header="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-            ) as ws:
+            
+            # Izmantojam extra_headers kā sarakstu, lai apietu Cloudflare 403
+            async with websockets.connect(uri, extra_headers=custom_headers) as ws:
                 print("[INFO] Direct WSS connected successfully!")
                 
                 # Receive Engine.IO handshake
