@@ -1,4 +1,5 @@
-websockets
-requests
-flask
+Flask
 gunicorn
+requests
+websockets
+aiohttp
