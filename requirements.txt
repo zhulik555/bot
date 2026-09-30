@@ -1,3 +1,5 @@
 python-socketio[client]
 requests
 websocket-client
+flask
+gunicorn
