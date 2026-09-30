@@ -30,42 +30,57 @@ def send_discord_alert(title, data_dict):
     except Exception as e:
         print(f"[ERROR] Discord post failed: {e}")
 
-# Izveidojam cloudscraper sesiju Cloudflare apiešanai
-scraper = cloudscraper.create_scraper()
+# Izveidojam scraper ar lietotāja pārlūka identitāti
+scraper = cloudscraper.create_scraper(
+    browser={
+        'browser': 'chrome',
+        'platform': 'windows',
+        'desktop': True
+    }
+)
 
 sio = socketio.Client(
     http_session=scraper,
     reconnection=True,
     reconnection_delay=5,
-    logger=False,
-    engineio_logger=False
+    logger=True,
+    engineio_logger=True
 )
 
-@sio.on('connect', namespace='/ws')
+@sio.on('connect')
 def on_connect():
-    print("[INFO] Connected successfully to Skinrave /ws namespace!")
+    print("[INFO] Connected to Skinrave root namespace!")
+    send_discord_alert("BOT CONNECTED TO SKINRAVE", {"status": "Connected successfully!"})
     
-    # Nosūtam testa ziņu uz Discord uzreiz pēc pieslēgšanās
-    send_discord_alert("BOT CONNECTED TO SKINRAVE", {"status": "Connected via Socket.IO /ws namespace"})
-    
-    # Abonējam visas iespējamās telpas
+    try:
+        sio.emit("WS_SUBSCRIBE", {"room": "RAIN", "modifiers": [], "currencyType": "TOKEN"})
+        sio.emit("WS_SUBSCRIBE", {"room": "GLOBAL", "modifiers": [], "currencyType": "TOKEN"})
+        print("[INFO] Subscribed to RAIN and GLOBAL!")
+    except Exception as e:
+        print(f"[ERROR] Subscription failed: {e}")
+
+@sio.on('connect', namespace='/ws')
+def on_connect_ws():
+    print("[INFO] Connected to /ws namespace!")
     try:
         sio.emit("WS_SUBSCRIBE", {"room": "RAIN", "modifiers": [], "currencyType": "TOKEN"}, namespace='/ws')
         sio.emit("WS_SUBSCRIBE", {"room": "GLOBAL", "modifiers": [], "currencyType": "TOKEN"}, namespace='/ws')
-        print("[INFO] Sent subscription requests for RAIN and GLOBAL rooms!")
     except Exception as e:
-        print(f"[ERROR] Failed to subscribe: {e}")
+        print(f"[ERROR] WS Subscription failed: {e}")
 
-@sio.on('disconnect', namespace='/ws')
-def on_disconnect():
-    print("[WARNING] Disconnected from Skinrave /ws namespace")
+@sio.on('*')
+def catch_all_root(event, data=None):
+    print(f"[EVENT ROOT] {event}: {data}")
+    check_and_notify(event, data)
 
 @sio.on('*', namespace='/ws')
-def catch_all(event, data):
-    print(f"[EVENT LOG] Received event '{event}': {data}")
+def catch_all_ws(event, data=None):
+    print(f"[EVENT /ws] {event}: {data}")
+    check_and_notify(event, data)
+
+def check_and_notify(event, data):
     event_str = str(event).upper()
     data_str = str(data).upper()
-    
     if "RAIN" in event_str or "RAIN" in data_str or "OPEN" in event_str:
         print(f"[MATCH FOUND] Triggering alert for: {event}")
         send_discord_alert(f"RAIN EVENT DETECTED: {event}", data if isinstance(data, dict) else {"raw": str(data)})
@@ -74,16 +89,19 @@ def run_socketio():
     while True:
         try:
             if not sio.connected:
-                print("[INFO] Connecting to Skinrave via Cloudscraper Polling...")
+                print("[INFO] Attempting Socket.IO connection...")
                 sio.connect(
                     'https://skinrave.com',
-                    namespaces=['/ws'],
-                    socketio_path='socket.io',
-                    transports=['polling', 'websocket']
+                    namespaces=['/', '/ws'],
+                    transports=['polling', 'websocket'],
+                    headers={
+                        "Origin": "https://skinrave.com",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                    }
                 )
             time.sleep(10)
         except Exception as e:
-            print(f"[ERROR] Connection attempt failed: {e}. Retrying in 5 seconds...")
+            print(f"[ERROR] Connection error: {e}. Retrying in 5 seconds...")
             time.sleep(5)
 
 def start_bot_once():
