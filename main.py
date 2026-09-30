@@ -30,78 +30,65 @@ def send_discord_alert(title, data_dict):
     except Exception as e:
         print(f"[ERROR] Discord post failed: {e}")
 
-# Izveidojam scraper ar lietotāja pārlūka identitāti
+# Izveidojam drošu cloudscraper sesiju
 scraper = cloudscraper.create_scraper(
-    browser={
-        'browser': 'chrome',
-        'platform': 'windows',
-        'desktop': True
-    }
+    browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
 )
 
 sio = socketio.Client(
     http_session=scraper,
     reconnection=True,
-    reconnection_delay=5,
-    logger=True,
-    engineio_logger=True
+    reconnection_delay=3,
+    logger=False,
+    engineio_logger=False
 )
 
-@sio.on('connect')
-def on_connect():
-    print("[INFO] Connected to Skinrave root namespace!")
-    send_discord_alert("BOT CONNECTED TO SKINRAVE", {"status": "Connected successfully!"})
-    
-    try:
-        sio.emit("WS_SUBSCRIBE", {"room": "RAIN", "modifiers": [], "currencyType": "TOKEN"})
-        sio.emit("WS_SUBSCRIBE", {"room": "GLOBAL", "modifiers": [], "currencyType": "TOKEN"})
-        print("[INFO] Subscribed to RAIN and GLOBAL!")
-    except Exception as e:
-        print(f"[ERROR] Subscription failed: {e}")
-
-@sio.on('connect', namespace='/ws')
-def on_connect_ws():
-    print("[INFO] Connected to /ws namespace!")
+def subscribe_all():
+    print("[INFO] Subscribing to Rain and Global channels...")
     try:
         sio.emit("WS_SUBSCRIBE", {"room": "RAIN", "modifiers": [], "currencyType": "TOKEN"}, namespace='/ws')
         sio.emit("WS_SUBSCRIBE", {"room": "GLOBAL", "modifiers": [], "currencyType": "TOKEN"}, namespace='/ws')
     except Exception as e:
-        print(f"[ERROR] WS Subscription failed: {e}")
+        print(f"[ERROR] WS_SUBSCRIBE error: {e}")
 
-@sio.on('*')
-def catch_all_root(event, data=None):
-    print(f"[EVENT ROOT] {event}: {data}")
-    check_and_notify(event, data)
+@sio.event
+def connect():
+    print("[INFO] Connected to Root namespace!")
+    send_discord_alert("BOT CONNECTED TO SKINRAVE", {"status": "Success", "namespace": "root"})
+
+@sio.event(namespace='/ws')
+def connect():
+    print("[INFO] Connected to /ws namespace!")
+    send_discord_alert("BOT CONNECTED TO SKINRAVE /ws", {"status": "Success", "namespace": "/ws"})
+    subscribe_all()
 
 @sio.on('*', namespace='/ws')
 def catch_all_ws(event, data=None):
     print(f"[EVENT /ws] {event}: {data}")
-    check_and_notify(event, data)
-
-def check_and_notify(event, data):
     event_str = str(event).upper()
     data_str = str(data).upper()
+    
     if "RAIN" in event_str or "RAIN" in data_str or "OPEN" in event_str:
         print(f"[MATCH FOUND] Triggering alert for: {event}")
-        send_discord_alert(f"RAIN EVENT DETECTED: {event}", data if isinstance(data, dict) else {"raw": str(data)})
+        send_discord_alert(f"RAIN DETECTED: {event}", data if isinstance(data, dict) else {"raw": str(data)})
 
 def run_socketio():
     while True:
         try:
             if not sio.connected:
-                print("[INFO] Attempting Socket.IO connection...")
+                print("[INFO] Connecting Engine.IO handshake...")
                 sio.connect(
                     'https://skinrave.com',
-                    namespaces=['/', '/ws'],
+                    namespaces=['/ws'],
                     transports=['polling', 'websocket'],
                     headers={
-                        "Origin": "https://skinrave.com",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        "Origin": "https://skinrave.com"
                     }
                 )
-            time.sleep(10)
+            time.sleep(5)
         except Exception as e:
-            print(f"[ERROR] Connection error: {e}. Retrying in 5 seconds...")
+            print(f"[ERROR] SocketIO connection failed: {e}. Retrying in 5s...")
             time.sleep(5)
 
 def start_bot_once():
