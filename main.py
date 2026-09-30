@@ -42,16 +42,16 @@ def send_rain_alert(event_name, data):
 
 async def listen_ws():
     uri = "wss://skinrave.com/socket.io/?EIO=4&transport=websocket"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Origin": "https://skinrave.com"
-    }
-
+    
     while True:
         try:
             print("[INFO] Connecting to Skinrave Direct WSS...")
-            # Pievienojam headers izmantojot pareizo 'additional_headers' parametru
-            async with websockets.connect(uri, additional_headers=headers) as ws:
+            # Pievienojamies bez papildu header parametriem, lai izvairītos no versiju konflikta
+            async with websockets.connect(
+                uri, 
+                origin="https://skinrave.com",
+                user_agent_header="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            ) as ws:
                 print("[INFO] Direct WSS connected successfully!")
                 
                 # Receive Engine.IO handshake
