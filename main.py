@@ -50,7 +50,8 @@ async def listen_ws():
     while True:
         try:
             print("[INFO] Connecting to Skinrave Direct WSS...")
-            async with websockets.connect(uri, extra_headers=headers) as ws:
+            # Pievienojam headers izmantojot pareizo 'additional_headers' parametru
+            async with websockets.connect(uri, additional_headers=headers) as ws:
                 print("[INFO] Direct WSS connected successfully!")
                 
                 # Receive Engine.IO handshake
@@ -92,7 +93,7 @@ async def listen_ws():
                             pass
 
         except Exception as e:
-            print(f"[ERROR] WSS Connection lost: {e}. Reconnecting in 5 seconds...")
+            print(f"[ERROR] Connection lost: {e}. Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
 
 def start_async_loop():
@@ -100,7 +101,6 @@ def start_async_loop():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(listen_ws())
 
-# Ensure the thread runs only once
 def start_bot_once():
     global bot_started
     if not bot_started:
