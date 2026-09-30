@@ -1,10 +1,14 @@
 import os
 import json
+import sys
 import asyncio
 import threading
 import requests
 from flask import Flask
 from playwright.async_api import async_playwright
+
+# Piedzenam pārlūka vietu projekta mapei
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 app = Flask(__name__)
 
@@ -34,10 +38,19 @@ async def run_browser_bot():
     send_discord_alert("BOT INITIALIZING", {"status": "Launching Playwright Browser..."})
     
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        )
+        try:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
+        except Exception as e:
+            print(f"[WARN] Chromium missing in runtime: {e}. Downloading on the fly...")
+            os.system("python -m playwright install chromium")
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
+
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
