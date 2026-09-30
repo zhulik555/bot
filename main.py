@@ -4,10 +4,10 @@ import sys
 import asyncio
 import threading
 import requests
+import time
 from flask import Flask
 from playwright.async_api import async_playwright
 
-# Piedzenam pārlūka vietu projekta mapei
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 app = Flask(__name__)
@@ -18,6 +18,7 @@ DISCORD_WEBHOOK_URL = os.environ.get(
 )
 
 bot_started = False
+last_alert_time = 0  # Laika zīmogs pēdējam paziņojumam
 
 @app.route('/')
 def home():
@@ -34,6 +35,7 @@ def send_discord_alert(title, data_dict):
         print(f"[ERROR] Discord post failed: {e}")
 
 async def run_browser_bot():
+    global last_alert_time
     print("[INFO] Starting Playwright Headless Browser...")
     send_discord_alert("BOT INITIALIZING", {"status": "Launching Playwright Browser..."})
     
@@ -61,13 +63,17 @@ async def run_browser_bot():
             send_discord_alert("BOT CONNECTED TO SKINRAVE", {"url": ws.url})
 
             def on_frame_received(payload):
+                global last_alert_time
                 try:
                     payload_str = payload if isinstance(payload, str) else payload.decode('utf-8', errors='ignore')
                     
-                    if "42/ws," in payload_str or "RAIN" in payload_str.upper():
-                        print(f"[WS FRAME] {payload_str}")
-                        if "RAIN" in payload_str.upper() or "OPEN" in payload_str.upper():
-                            send_discord_alert("RAIN DETECTED VIA BROWSER", {"payload": payload_str})
+                    # Meklējam konkrētu Socket.IO ziņojumu par Rain sākumu un pārbaudām cooldown (piem., vismaz 60s starp ziņojumiem)
+                    current_time = time.time()
+                    if ("rain" in payload_str.lower() and "active" in payload_str.lower()) or "rain_created" in payload_str.lower():
+                        if current_time - last_alert_time > 60:
+                            last_alert_time = current_time
+                            print(f"[RAIN MATCH] {payload_str}")
+                            send_discord_alert("🌧️ RAIN DETECTED!", {"payload": payload_str})
                 except Exception as err:
                     print(f"[FRAME PARSE ERR] {err}")
 
